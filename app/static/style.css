@@ -1,0 +1,26 @@
+/* Asegurar que el toggler siempre sea visible */
+.navbar-toggler {
+    display: block !important;
+}
+
+/* Estilos para los botones del acordeón */
+.accordion-button {
+    background-color: #343a40 !important; /* Gris oscuro del tema darkly */
+    color: #00ccff !important; /* Celeste brillante para mayor visibilidad */
+}
+
+.accordion-button:not(.collapsed) {
+    background-color: #495057 !important; /* Gris un poco más claro para el abierto */
+    color: #00ccff !important; /* Celeste brillante */
+}
+
+.accordion-button:focus {
+    box-shadow: none !important; /* Quitar sombra molesta */
+    outline: none !important;
+}
+
+/* Asegurar que el cuerpo del acordeón también sea oscuro */
+.accordion-body {
+    background-color: #212529 !important; /* Fondo oscuro consistente */
+    color: #ffffff !important; /* Texto blanco */
+}

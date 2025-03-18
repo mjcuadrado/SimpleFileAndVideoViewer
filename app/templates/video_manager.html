@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Videos</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.3/dist/darkly/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    {% include 'navbar.html' %}
+
+    <main class="container mt-5 pt-4">
+        <h2 class="text-light mb-4">Gestor de Videos</h2>
+        <p class="text-muted">Cola: {{ queue_size }} / {{ max_queue_size }}</p>
+        <form method="POST" action="{{ url_for('manage_videos') }}" class="mb-4">
+            <div class="input-group w-25">
+                <span class="input-group-text">Tamaño de la cola</span>
+                <input type="number" name="queue_size" class="form-control" value="{{ max_queue_size }}" min="1">
+                <input type="hidden" name="action" value="set_queue_size">
+                <button type="submit" class="btn btn-outline-light">Actualizar</button>
+            </div>
+        </form>
+        {% if error %}
+            <div class="alert alert-danger animate__animated animate__shakeX">{{ error }}</div>
+        {% endif %}
+
+        <div class="accordion" id="videoAccordion">
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="headingConverting">
+                    <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseConverting" aria-expanded="true" aria-controls="collapseConverting">
+                        Videos en Conversión
+                    </button>
+                </h2>
+                <div id="collapseConverting" class="accordion-collapse collapse show" aria-labelledby="headingConverting" data-bs-parent="#videoAccordion">
+                    <div class="accordion-body">
+                        {% if converting_videos|length > 0 %}
+                            <div class="row g-4">
+                                {% for video in converting_videos %}
+                                    <div class="col-12">
+                                        <div class="card shadow-sm">
+                                            <div class="card-body">
+                                                <h5 class="card-title text-light"><i class="fas fa-video me-2 text-primary"></i>{{ video.file_path.split('/')[-1] }}</h5>
+                                                <p class="card-text text-light">
+                                                    Estado: {{ 'En proceso' if video.status == 'processing' else 'En cola' }}<br>
+                                                    Tiempo Restante: {{ video.eta }}<br>
+                                                    Mensaje: {{ video.message }}
+                                                </p>
+                                                <div class="progress">
+                                                    <div class="progress-bar" role="progressbar" style="width: {{ video.progress }}%;" aria-valuenow="{{ video.progress }}" aria-valuemin="0" aria-valuemax="100">{{ video.progress }}%</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="text-muted">No hay videos en conversión actualmente.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="headingCurrent">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCurrent" aria-expanded="false" aria-controls="collapseCurrent">
+                        Videos Actuales
+                    </button>
+                </h2>
+                <div id="collapseCurrent" class="accordion-collapse collapse" aria-labelledby="headingCurrent" data-bs-parent="#videoAccordion">
+                    <div class="accordion-body">
+                        {% if cache_status == "scanning" %}
+                            <p class="text-muted">Escaneando videos, por favor espera...</p>
+                        {% elif videos|length == 0 %}
+                            <p class="text-muted">No hay videos detectados.</p>
+                        {% else %}
+                            <form method="POST" action="{{ url_for('manage_videos') }}">
+                                <input type="hidden" name="action" value="convert">
+                                <div class="mb-3">
+                                    <button type="button" class="btn btn-outline-light" onclick="selectAll()">Seleccionar todos</button>
+                                    <button type="submit" class="btn btn-primary">Convertir seleccionados</button>
+                                </div>
+                                <div class="row g-4">
+                                    {% for video in videos %}
+                                        <div class="col-12">
+                                            <div class="card shadow-sm">
+                                                <div class="card-body">
+                                                    <div class="form-check d-inline-block me-3">
+                                                        {% if video.needs_conversion and video.status not in ['queued', 'processing', 'completed'] and not video.processed %}
+                                                            <input type="checkbox" name="file_paths" value="{{ video.file_path }}" class="form-check-input">
+                                                        {% endif %}
+                                                    </div>
+                                                    <h5 class="card-title text-light d-inline-block"><i class="fas fa-video me-2 text-primary"></i>{{ video.filename }}</h5>
+                                                    <p class="card-text text-light">
+                                                        Curso: {{ video.curso }}<br>
+                                                        Sección: {{ video.seccion if video.seccion else 'Sin sección' }}<br>
+                                                        Tamaño: {{ video.size_mb }} MB<br>
+                                                        Códec: {{ video.codec }}<br>
+                                                        Estado: {{ video.status }}<br>
+                                                        Mensaje: {{ video.message }}<br>
+                                                        Procesado: {{ 'Sí' if video.processed else 'No' }}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="headingArchived">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseArchived" aria-expanded="false" aria-controls="collapseArchived">
+                        Videos Archivados
+                    </button>
+                </h2>
+                <div id="collapseArchived" class="accordion-collapse collapse" aria-labelledby="headingArchived" data-bs-parent="#videoAccordion">
+                    <div class="accordion-body">
+                        <div class="row g-4">
+                            {% for archived in archived_videos %}
+                                <div class="col-12">
+                                    <div class="card shadow-sm">
+                                        <div class="card-body">
+                                            <h5 class="card-title text-light"><i class="fas fa-video me-2 text-primary"></i>Archivado</h5>
+                                            <p class="card-text text-light">
+                                                Ruta Original: {{ archived.original_path }}<br>
+                                                Ruta Convertida: {{ archived.converted_path }}
+                                            </p>
+                                            <form method="POST" action="{{ url_for('manage_videos') }}" class="d-inline">
+                                                <input type="hidden" name="action" value="delete_archived">
+                                                <input type="hidden" name="archived_id" value="{{ archived.id }}">
+                                                <button type="submit" class="btn btn-danger btn-sm">Eliminar</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+    <script>
+        function saveSelections() {
+            const checkboxes = document.querySelectorAll('input[name="file_paths"]:checked');
+            const selected = Array.from(checkboxes).map(cb => cb.value);
+            localStorage.setItem('selectedVideos', JSON.stringify(selected));
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const selected = JSON.parse(localStorage.getItem('selectedVideos') || '[]');
+            const checkboxes = document.querySelectorAll('input[name="file_paths"]');
+            checkboxes.forEach(cb => {
+                if (selected.includes(cb.value)) cb.checked = true;
+                cb.addEventListener('change', saveSelections);
+            });
+            setInterval(() => location.reload(), 5000);
+        });
+
+        function selectAll() {
+            const checkboxes = document.querySelectorAll('input[name="file_paths"]');
+            checkboxes.forEach(cb => cb.checked = true);
+            saveSelections();
+        }
+    </script>
+</body>
+</html>
