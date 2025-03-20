@@ -12,24 +12,23 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar app.py desde la raíz del proyecto
-COPY app.py .
+# Verificar instalación de dependencias
+RUN pip show Flask Flask-SQLAlchemy psycopg2-binary python-dotenv bcrypt tenacity || echo "Dependencias no instaladas correctamente"
 
-# Copiar las subcarpetas static/ y templates/ desde app/
-COPY app/static/ static/
-COPY app/templates/ templates/
+# Copiar el contenido de app/ a /app/app/
+COPY app/ app/
 
-# Verificar que app.py existe (para depuración)
-RUN ls -la /app/app.py || echo "app.py no encontrado"
+# Copiar main.py a /app/
+COPY main.py .
 
-# Verificar que las subcarpetas existen
-RUN ls -la /app/static /app/templates || echo "static o templates no encontrado"
+# Verificar que los archivos existen y listar el contenido de /app y /app/app
+RUN ls -la /app && ls -la /app/app && ls -la /app/main.py && ls -la /app/app/__init__.py && ls -la /app/app/routes && ls -la /app/app/services && ls -la /app/app/models || echo "Algunos archivos no encontrados"
 
 # Asegurar permisos
-RUN chmod +r /app/app.py
+RUN chmod +r /app/main.py
 
 # Exponer el puerto
 EXPOSE 5000
 
-# Ejecutar app.py
-CMD ["python", "app.py"]
+# Ejecutar main.py
+CMD ["python", "main.py"]

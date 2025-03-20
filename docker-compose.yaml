@@ -13,7 +13,7 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    command: python app.py
+    command: python main.py
 
   db:
     image: postgres:15
