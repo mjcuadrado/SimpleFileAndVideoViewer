@@ -24,7 +24,10 @@ COPY main.py .
 # Verificar que los archivos existen y listar el contenido de /app y /app/app
 RUN ls -la /app && ls -la /app/app && ls -la /app/main.py && ls -la /app/app/__init__.py && ls -la /app/app/routes && ls -la /app/app/services && ls -la /app/app/models || echo "Algunos archivos no encontrados"
 
-# Asegurar permisos
+# Crear el directorio de logs y asegurar permisos
+RUN mkdir -p /app/logs && chmod -R 777 /app/logs
+
+# Asegurar permisos para main.py
 RUN chmod +r /app/main.py
 
 # Exponer el puerto

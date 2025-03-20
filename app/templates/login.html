@@ -7,28 +7,40 @@
     <link href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.3/dist/darkly/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="d-flex justify-content-center align-items-center vh-100 bg-dark">
-    <div class="card p-4 shadow-lg animate__animated animate__fadeIn" style="width: 100%; max-width: 400px; background: #343a40;">
-        <h2 class="card-title text-center mb-4 text-light">Iniciar Sesión</h2>
-        {% if error %}
-            <div class="alert alert-danger animate__animated animate__shakeX">{{ error }}</div>
-        {% endif %}
-        <form method="POST" action="{{ url_for('login') }}">
-            <div class="mb-3">
-                <label for="username" class="form-label text-light">Usuario</label>
-                <input type="text" name="username" id="username" class="form-control" required>
+<body>
+    <main class="container mt-5 pt-4">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="card bg-dark text-light animate__animated animate__fadeIn">
+                    <div class="card-header">
+                        <h3 class="text-center"><i class="fas fa-sign-in-alt me-2"></i>Iniciar Sesión</h3>
+                    </div>
+                    <div class="card-body">
+                        {% if error %}
+                            <div class="alert alert-danger" role="alert">
+                                {{ error }}
+                            </div>
+                        {% endif %}
+                        <form method="POST" action="{{ url_for('login') }}">
+                            <div class="mb-3">
+                                <label for="username" class="form-label">Usuario</label>
+                                <input type="text" class="form-control bg-dark text-light border-secondary" id="username" name="username" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="password" class="form-label">Contraseña</label>
+                                <input type="password" class="form-control bg-dark text-light border-secondary" id="password" name="password" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">Iniciar Sesión</button>
+                        </form>
+                    </div>
+                </div>
             </div>
-            <div class="mb-3">
-                <label for="password" class="form-label text-light">Contraseña</label>
-                <input type="password" name="password" id="password" class="form-control" required>
-            </div>
-            <button type="submit" class="btn btn-primary w-100">Entrar</button>
-        </form>
-    </div>
+        </div>
+    </main>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
 </body>
 </html>
