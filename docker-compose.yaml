@@ -7,14 +7,13 @@ services:
       - "5000:5000"
     volumes:
       - /mnt/user/cursos:/cursos
-      - /mnt/user/appdata/oposicionesweb/migrations:/app/migrations  # Mantengo este volumen por si decides usar migraciones en el futuro
     depends_on:
       db:
         condition: service_healthy
     env_file:
-      - .env  # Mantengo la misma ruta, asegúrate de que el .env esté en /mnt/user/appdata/oposicionesweb/.env
+      - .env
     restart: unless-stopped
-    command: python /app/app.py  # Cambio de /app/init.sh a python /app/app.py, ya que este commit no usa init.sh
+    command: python app.py
 
   db:
     image: postgres:15
