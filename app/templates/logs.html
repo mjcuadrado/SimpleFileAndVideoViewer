@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualización de Logs</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.3/dist/darkly/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    {% if session.get('logged_in') %}
+        {% include 'navbar.html' %}
+    {% endif %}
+
+    <main class="container mt-5 pt-4">
+        <h2 class="text-light mb-4 animate__animated animate__fadeIn"><i class="fas fa-file-alt me-2"></i>Visualización de Logs</h2>
+        <div class="mb-4">
+            <a href="{{ url_for('index') }}" class="btn btn-outline-primary">Volver a la página principal</a>
+        </div>
+        <form class="filter-form mb-4" method="GET" action="{{ url_for('view_logs') }}">
+            <div class="row g-3 align-items-center">
+                <div class="col-auto">
+                    <label for="level" class="text-light">Filtrar por nivel:</label>
+                </div>
+                <div class="col-auto">
+                    <select name="level" id="level" class="form-select bg-dark text-light border-secondary">
+                        <option value="">Todos</option>
+                        <option value="DEBUG" {% if level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                        <option value="INFO" {% if level == 'INFO' %}selected{% endif %}>INFO</option>
+                        <option value="WARNING" {% if level == 'WARNING' %}selected{% endif %}>WARNING</option>
+                        <option value="ERROR" {% if level == 'ERROR' %}selected{% endif %}>ERROR</option>
+                        <option value="CRITICAL" {% if level == 'CRITICAL' %}selected{% endif %}>CRITICAL</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary">Filtrar</button>
+                </div>
+            </div>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-dark table-striped">
+                <thead>
+                    <tr>
+                        <th>Fecha y Hora</th>
+                        <th>Nombre</th>
+                        <th>Nivel</th>
+                        <th>Mensaje</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td>{{ log.timestamp }}</td>
+                        <td>{{ log.name }}</td>
+                        <td>
+                            <span class="badge 
+                                {% if log.level == 'DEBUG' %}bg-info
+                                {% elif log.level == 'INFO' %}bg-success
+                                {% elif log.level == 'WARNING' %}bg-warning
+                                {% elif log.level == 'ERROR' %}bg-danger
+                                {% elif log.level == 'CRITICAL' %}bg-danger{% endif %}">
+                                {{ log.level }}
+                            </span>
+                        </td>
+                        <td>{{ log.message }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+</body>
+</html>
