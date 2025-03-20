@@ -1,0 +1,32 @@
+services:
+  web:
+    build:
+      context: /mnt/user/appdata/oposicionesweb
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - /mnt/user/cursos:/cursos
+      - /mnt/user/appdata/oposicionesweb/migrations:/app/migrations  # Mantengo este volumen por si decides usar migraciones en el futuro
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env  # Mantengo la misma ruta, asegúrate de que el .env esté en /mnt/user/appdata/oposicionesweb/.env
+    restart: unless-stopped
+    command: python /app/app.py  # Cambio de /app/init.sh a python /app/app.py, ya que este commit no usa init.sh
+
+  db:
+    image: postgres:15
+    volumes:
+      - /mnt/user/appdata/oposicionesweb/pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=oposicionesdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d oposicionesdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
