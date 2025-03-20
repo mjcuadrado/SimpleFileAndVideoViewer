@@ -1,14 +1,19 @@
 FROM python:3.9-slim
 
 WORKDIR /app
+
+# Instalar dependencias del sistema: ffmpeg y git
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Instalar ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg
+# Copiar el contenido de app/ a /app (sin el subdirectorio app/)
+COPY app/ .
 
-# Copiar todo el contenido del proyecto
-COPY . .
+EXPOSE 5000
 
-# Cambiar el comando para ejecutar app.py dentro de la subcarpeta app/
-CMD ["python", "app/app.py"]
+CMD ["python", "app.py"]

@@ -1,5 +1,6 @@
-from flask import Flask, render_template, send_from_directory, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, send_from_directory, request, redirect, url_for, session, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate, upgrade
 import os
 import bcrypt
 import subprocess
@@ -12,6 +13,8 @@ import logging
 import time
 import re
 from dotenv import load_dotenv
+import whisper
+import torch  # Añadimos torch para verificar si CUDA está disponible
 
 # Cargar variables de entorno desde .env
 load_dotenv()
@@ -22,6 +25,7 @@ app.secret_key = os.getenv('SECRET_KEY', 'supersecreto')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://user:password@db:5432/oposicionesdb')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)  # Inicializa Flask-Migrate
 
 CURSOS_DIR = "/cursos"
 ARCHIVE_DIR = os.path.join(CURSOS_DIR, "_archive")
@@ -33,6 +37,14 @@ conversion_queue = Queue(maxsize=int(os.getenv('MAX_QUEUE_SIZE', 5)))
 conversion_status = {}
 video_candidates_cache = []
 cache_status = "scanning"
+
+# Verificar si CUDA está disponible
+if torch.cuda.is_available():
+    app.logger.info("CUDA está disponible. openai-whisper usará GPU.")
+    device = "cuda"
+else:
+    app.logger.info("CUDA no está disponible. openai-whisper usará CPU.")
+    device = "cpu"
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -46,11 +58,35 @@ class ConvertedVideo(db.Model):
     original_path = db.Column(db.String(255), nullable=False)
     converted_path = db.Column(db.String(255), nullable=False)
     status = db.Column(db.String(20), default='completed')
+    has_subtitles = db.Column(db.Boolean, default=False)
+
+class VideoProgress(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    curso = db.Column(db.String(255), nullable=False)
+    seccion = db.Column(db.String(255), nullable=True)
+    filename = db.Column(db.String(255), nullable=False)
+    progress = db.Column(db.Float, default=0.0)
+    completed = db.Column(db.Boolean, default=False)
+    __table_args__ = (db.UniqueConstraint('user_id', 'curso', 'seccion', 'filename', name='unique_user_video'),)
 
 @retry(stop=stop_after_attempt(20), wait=wait_fixed(5), retry=retry_if_exception_type(OperationalError))
 def init_db():
     with app.app_context():
-        db.create_all()
+        migrations_dir = os.path.join(os.path.dirname(__file__), 'migrations')
+        try:
+            if os.path.exists(migrations_dir):
+                upgrade(directory=migrations_dir)
+                app.logger.info("Migraciones aplicadas correctamente.")
+            else:
+                app.logger.warning("Directorio de migraciones no encontrado, creando base de datos desde cero.")
+                db.create_all()
+        except Exception as e:
+            app.logger.error(f"Error al aplicar migraciones o crear la base de datos: {e}")
+            app.logger.warning("Usando creación de base de datos como fallback.")
+            db.create_all()
+
+        # Configuración inicial de usuario admin
         admin_password = os.getenv('ADMIN_PASSWORD', 'default_password')
         hashed_pw = bcrypt.hashpw(admin_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         admin_user = User.query.filter_by(username='admin').first()
@@ -65,8 +101,10 @@ def init_db():
 try:
     init_db()
 except Exception as e:
-    app.logger.error(f"Error al inicializar la base de datos: {e}")
-    raise
+    app.logger.error(f"Error grave al inicializar la base de datos, intentando continuar: {e}")
+    # Intentar crear la base de datos como último recurso
+    with app.app_context():
+        db.create_all()
 
 def get_file_hash(file_path):
     sha256 = hashlib.sha256()
@@ -96,6 +134,34 @@ def get_video_info(file_path):
     except Exception as e:
         return {'error': str(e)}
 
+def generate_subtitles(file_path):
+    filename = os.path.basename(file_path)
+    vtt_file = os.path.join(os.path.dirname(file_path), f"{os.path.splitext(filename)[0]}.vtt")
+    if not os.path.exists(vtt_file):
+        app.logger.info(f"Generando subtítulos para {file_path}")
+        try:
+            model = whisper.load_model("base", device=device)  # Especificamos el dispositivo (CPU o GPU)
+            result = model.transcribe(file_path)
+            with open(vtt_file, 'w', encoding='utf-8') as f:
+                f.write("WEBVTT\n\n")
+                for segment in result['segments']:
+                    start = segment['start']
+                    end = segment['end']
+                    text = segment['text'].strip().replace('\n', ' ')
+                    f.write(f"{int(start // 3600):02d}:{int((start % 3600) // 60):02d}:{int(start % 60):02d}.000 --> "
+                            f"{int(end // 3600):02d}:{int((end % 3600) // 60):02d}:{int(end % 60):02d}.000\n")
+                    f.write(f"{text}\n\n")
+            with app.app_context():
+                converted = ConvertedVideo.query.filter_by(converted_path=file_path).first()
+                if converted:
+                    converted.has_subtitles = True
+                    db.session.commit()
+            app.logger.info(f"Subtítulos generados y guardados en {vtt_file}")
+        except Exception as e:
+            app.logger.error(f"Error al generar subtítulos para {file_path}: {str(e)}")
+    else:
+        app.logger.info(f"Subtítulos ya existen para {file_path}")
+
 def scan_videos():
     global video_candidates_cache, cache_status
     while True:
@@ -123,6 +189,7 @@ def scan_videos():
                             if 'error' in video_info:
                                 app.logger.warning(f"Error en ffprobe para {file_path}: {video_info['error']}")
                                 continue
+                            has_subtitles = os.path.exists(os.path.join(root, f"{os.path.splitext(filename)[0]}.vtt"))
                             video_data = {
                                 'curso': curso,
                                 'seccion': seccion,
@@ -134,13 +201,16 @@ def scan_videos():
                                 'message': status['message'],
                                 'file_path': file_path,
                                 'duration': video_info.get('duration', 0),
-                                'processed': file_path in processed_videos
+                                'processed': file_path in processed_videos,
+                                'has_subtitles': has_subtitles
                             }
                             videos.append(video_data)
                             if video_data['needs_conversion'] and video_data['status'] not in ['queued', 'processing', 'completed'] and not video_data['processed']:
                                 if not conversion_queue.full():
                                     conversion_queue.put(file_path)
                                     conversion_status[file_path] = {'status': 'queued', 'message': 'En cola', 'progress': 0, 'eta': 'Esperando...'}
+                            if not has_subtitles and file_path in processed_videos:
+                                generate_subtitles(file_path)
             except Exception as e:
                 app.logger.error(f"Error durante el escaneo de videos: {str(e)}")
             video_candidates_cache = videos
@@ -181,11 +251,12 @@ def convert_video(file_path):
         if process.returncode == 0:
             os.rename(file_path, archive_path)
             os.rename(temp_output_path, file_path)
+            generate_subtitles(file_path)
             with app.app_context():
-                converted = ConvertedVideo(original_hash=original_hash, original_path=archive_path, converted_path=file_path)
+                converted = ConvertedVideo(original_hash=original_hash, original_path=archive_path, converted_path=file_path, has_subtitles=True)
                 db.session.add(converted)
                 db.session.commit()
-            conversion_status[file_path] = {'status': 'completed', 'message': f'Convertido y archivado: {file_path}', 'progress': 100, 'eta': '0s'}
+            conversion_status[file_path] = {'status': 'completed', 'message': f'Convertido y subtítulos generados: {file_path}', 'progress': 100, 'eta': '0s'}
         else:
             conversion_status[file_path] = {'status': 'failed', 'message': 'FFmpeg falló', 'progress': 0, 'eta': 'N/A'}
             if os.path.exists(temp_output_path):
@@ -215,7 +286,6 @@ def set_queue_size(new_size):
 
 @app.context_processor
 def inject_globals():
-    """Inyecta variables globales en todas las plantillas."""
     cursos = {}
     for root, dirs, files in os.walk(CURSOS_DIR):
         if '_archive' in root or '_temp' in root:
@@ -293,11 +363,13 @@ def index():
         else:
             cursos[curso][seccion] = {'videos': videos, 'pdfs': pdfs}
 
-    if not selected_curso and cursos:
+    if not selected_curso and not cursos:
+        selected_curso = None
+    elif not selected_curso and cursos:
         selected_curso = list(cursos.keys())[0]
 
     return render_template('index.html', cursos=cursos, search_query=search_query, 
-                           selected_curso=selected_curso)
+                           selected_curso=selected_curso, video_candidates=video_candidates_cache)
 
 @app.route('/inspect/<curso>/<path:seccion>/<filename>', methods=['GET'])
 def inspect_video(curso, seccion, filename):
@@ -393,6 +465,8 @@ def serve_file_no_section(curso, filename):
             mimetype = 'video/mp4'
         elif filename.endswith('.pdf'):
             mimetype = 'application/pdf'
+        elif filename.endswith(('.vtt', '.srt')):
+            mimetype = 'text/vtt' if filename.endswith('.vtt') else 'application/x-subrip'
         else:
             mimetype = 'application/octet-stream'
         return send_from_directory(os.path.dirname(file_path), filename, mimetype=mimetype)
@@ -410,11 +484,65 @@ def serve_file_with_section(curso, seccion, filename):
             mimetype = 'video/mp4'
         elif filename.endswith('.pdf'):
             mimetype = 'application/pdf'
+        elif filename.endswith(('.vtt', '.srt')):
+            mimetype = 'text/vtt' if filename.endswith('.vtt') else 'application/x-subrip'
         else:
             mimetype = 'application/octet-stream'
         return send_from_directory(os.path.dirname(file_path), filename, mimetype=mimetype)
     app.logger.error(f"Archivo no encontrado para reproducción: {file_path}")
     return "Archivo no encontrado", 404
+
+@app.route('/video_progress', methods=['POST', 'GET'])
+def video_progress():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'No autenticado'}), 401
+    user = User.query.filter_by(username=session['username']).first()
+    if request.method == 'POST':
+        data = request.get_json()
+        curso = data.get('curso')
+        seccion = data.get('seccion', None)
+        filename = data.get('filename')
+        progress = data.get('progress', 0.0)
+        completed = data.get('completed', False)
+        
+        progress_entry = VideoProgress.query.filter_by(user_id=user.id, curso=curso, seccion=seccion, filename=filename).first()
+        if progress_entry:
+            progress_entry.progress = progress
+            progress_entry.completed = completed
+        else:
+            progress_entry = VideoProgress(user_id=user.id, curso=curso, seccion=seccion, filename=filename, progress=progress, completed=completed)
+            db.session.add(progress_entry)
+        db.session.commit()
+        return jsonify({'message': 'Progreso guardado'}), 200
+    
+    if request.method == 'GET':
+        curso = request.args.get('curso')
+        seccion = request.args.get('seccion', None)
+        filename = request.args.get('filename')
+        progress_entry = VideoProgress.query.filter_by(user_id=user.id, curso=curso, seccion=seccion, filename=filename).first()
+        if progress_entry:
+            return jsonify({'progress': progress_entry.progress, 'completed': progress_entry.completed})
+        return jsonify({'progress': 0.0, 'completed': False}), 200
+
+@app.route('/transcribe/<curso>/<path:seccion>/<filename>', methods=['GET'])
+@app.route('/transcribe/<curso>/<filename>', methods=['GET'])
+def transcribe_video(curso, seccion=None, filename=None):
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    file_path = os.path.join(CURSOS_DIR, curso, seccion, filename) if seccion else os.path.join(CURSOS_DIR, curso, filename)
+    if not os.path.isfile(file_path) or not filename.endswith('.mp4'):
+        return "Video no encontrado", 404
+    
+    try:
+        model = whisper.load_model("base", device=device)  # Especificamos el dispositivo (CPU o GPU)
+        result = model.transcribe(file_path)
+        transcript_path = os.path.join(TEMP_DIR, f"{filename.replace('.mp4', '')}_transcript.txt")
+        with open(transcript_path, 'w') as f:
+            f.write(result['text'])
+        return send_file(transcript_path, as_attachment=True, download_name=f"{filename.replace('.mp4', '')}_transcript.txt")
+    except Exception as e:
+        app.logger.error(f"Error al transcribir video {file_path}: {str(e)}")
+        return "Error al transcribir el video", 500
 
 @app.route('/api/stats', methods=['GET'])
 def api_stats():
@@ -429,4 +557,17 @@ def api_version():
     return jsonify({"error": "Endpoint no implementado aún"}), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    with app.app_context():
+        for root, dirs, files in os.walk(CURSOS_DIR):
+            if '_archive' in root or '_temp' in root:
+                continue
+            for filename in files:
+                if filename.endswith('.mp4'):
+                    file_path = os.path.join(root, filename)
+                    converted = ConvertedVideo.query.filter_by(converted_path=file_path).first()
+                    if converted and not converted.has_subtitles:
+                        try:
+                            generate_subtitles(file_path)
+                        except Exception as e:
+                            app.logger.error(f"Error al procesar subtítulos para {file_path}: {str(e)}")
+    app.run(host='0.0.0.0', port=5000, debug=True)
